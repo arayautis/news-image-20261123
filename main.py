@@ -12,11 +12,22 @@ Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for
 /output:
     mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
 """
+import hashlib
 import os
 import shutil
 from pathlib import Path
 
 PNG_MAGIC = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+_CHUNK = 1024 * 1024  # 1 MiB at a time; the image is about 134 KiB
+
+
+def sha256_file(path: Path) -> str:
+    """Streaming SHA-256 of a file, without loading it whole into memory."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(_CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def main() -> None:
@@ -29,10 +40,12 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / "entry.png"
     shutil.copyfile(source, dest)
-    # Verify the copy landed whole: same size and same bytes as the source.
+    # Verify the copy landed whole: same size and same streaming hash
+    # as the source, so a truncated or altered copy is caught even for
+    # images far larger than memory.
     if dest.stat().st_size != source.stat().st_size:
         raise ValueError("copied entry.png has the wrong size")
-    if dest.read_bytes() != source.read_bytes():
+    if sha256_file(dest) != sha256_file(source):
         raise ValueError("copied entry.png differs from the source")
 
 
